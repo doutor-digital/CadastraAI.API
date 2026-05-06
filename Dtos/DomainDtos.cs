@@ -31,6 +31,12 @@ public record UpdateLeadRequest(
     [MaxLength(200)] string? MotivoNaoAgendamento,
     [MaxLength(100)] string? NomeResponsavel);
 
+public record PaginatedLeadsResponse(
+    List<LeadSummaryDto> Items,
+    int Total,
+    int Page,
+    int PageSize);
+
 public record LeadSummaryDto(
     Guid Id,
     Guid EmpresaId,

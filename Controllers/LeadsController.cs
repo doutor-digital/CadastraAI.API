@@ -13,16 +13,43 @@ namespace CadastraAI.API.Controllers;
 public class LeadsController(AppDbContext db) : ControllerBase
 {
     [HttpGet("api/empresas/{empresaId:guid}/leads")]
-    public async Task<ActionResult<List<LeadSummaryDto>>> List(Guid empresaId, CancellationToken ct)
+    public async Task<ActionResult<PaginatedLeadsResponse>> List(
+        Guid empresaId,
+        [FromQuery] int page = 0,
+        [FromQuery] int pageSize = 100,
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        CancellationToken ct = default)
     {
         var userId = User.UserId();
         if (userId is null) return Unauthorized();
         if (await MembershipGuard.Find(db, empresaId, userId.Value, ct) is null) return Forbid();
 
-        var leads = await db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId)
+        pageSize = Math.Clamp(pageSize, 1, 500);
+        page = Math.Max(0, page);
+
+        var q = db.Leads.AsNoTracking().Where(l => l.EmpresaId == empresaId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            q = q.Where(l =>
+                l.Nome.ToLower().Contains(s)
+                || l.Telefone.ToLower().Contains(s)
+                || l.Origem.ToLower().Contains(s)
+                || l.NomeResponsavel.ToLower().Contains(s));
+        }
+
+        if (status == "agendados") q = q.Where(l => l.AgendouConsulta);
+        else if (status == "nao_agendados") q = q.Where(l => !l.AgendouConsulta);
+
+        var total = await q.CountAsync(ct);
+
+        var items = await q
             .Include(l => l.Consulta)
             .OrderByDescending(l => l.CreatedAt)
+            .Skip(page * pageSize)
+            .Take(pageSize)
             .Select(l => new LeadSummaryDto(
                 l.Id,
                 l.EmpresaId,
@@ -44,7 +71,7 @@ public class LeadsController(AppDbContext db) : ControllerBase
                 l.Consulta != null ? l.Consulta.MotivoNaoFechamento : null))
             .ToListAsync(ct);
 
-        return Ok(leads);
+        return Ok(new PaginatedLeadsResponse(items, total, page, pageSize));
     }
 
     [HttpGet("api/leads/{leadId:guid}")]
