@@ -9,6 +9,12 @@ public class Lead
     [Key]
     public Guid Id { get; set; } = Guid.NewGuid();
 
+    [Required]
+    public Guid EmpresaId { get; set; }
+
+    [ForeignKey(nameof(EmpresaId))]
+    public Empresa Empresa { get; set; } = null!;
+
     [Required, MaxLength(200)]
     public string Nome { get; set; } = string.Empty;
 

@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Consulta> Consultas => Set<Consulta>();
     public DbSet<Tratamento> Tratamentos => Set<Tratamento>();
     public DbSet<Recebimento> Recebimentos => Set<Recebimento>();
+    public DbSet<MotivoNaoFechamento> MotivosNaoFechamento => Set<MotivoNaoFechamento>();
 
     // Auth + Tenancy
     public DbSet<User> Users => Set<User>();
@@ -19,6 +20,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Lead → Empresa (multi-tenant scoping)
+        modelBuilder.Entity<Lead>()
+            .HasOne(l => l.Empresa)
+            .WithMany()
+            .HasForeignKey(l => l.EmpresaId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         // Lead → Consulta (1:1)
         modelBuilder.Entity<Lead>()
             .HasOne(l => l.Consulta)
@@ -54,8 +62,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasIndex(l => l.AgendouConsulta);
         modelBuilder.Entity<Lead>()
             .HasIndex(l => l.NomeResponsavel);
+        modelBuilder.Entity<Lead>()
+            .HasIndex(l => new { l.EmpresaId, l.CreatedAt });
         modelBuilder.Entity<Consulta>()
             .HasIndex(c => c.FechouTratamento);
+
+        // Motivos de não fechamento por empresa (nome único dentro da empresa)
+        modelBuilder.Entity<MotivoNaoFechamento>()
+            .HasIndex(m => new { m.EmpresaId, m.Nome })
+            .IsUnique();
+        modelBuilder.Entity<MotivoNaoFechamento>()
+            .HasOne(m => m.Empresa)
+            .WithMany()
+            .HasForeignKey(m => m.EmpresaId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // ----- Auth / Tenancy -----
 

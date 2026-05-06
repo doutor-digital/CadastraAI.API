@@ -85,6 +85,18 @@ public class EmpresasController(
             CreatedAt = DateTime.UtcNow,
         });
 
+        foreach (var (nome, cor) in MotivoNaoFechamento.Defaults)
+        {
+            db.MotivosNaoFechamento.Add(new MotivoNaoFechamento
+            {
+                EmpresaId = empresa.Id,
+                Nome = nome,
+                Cor = cor,
+                IsDefault = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Ok(new EmpresaDto(

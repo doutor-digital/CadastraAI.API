@@ -27,6 +27,9 @@ public class Consulta
     [Required, Column(TypeName = "decimal(10,2)")]
     public decimal Orcamento { get; set; }
 
+    /// <summary>Se o lead compareceu na consulta marcada.</summary>
+    public bool Compareceu { get; set; }
+
     public bool FechouTratamento { get; set; }
 
     /// <summary>
