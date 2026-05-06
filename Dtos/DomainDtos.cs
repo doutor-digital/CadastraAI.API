@@ -37,6 +37,25 @@ public record PaginatedLeadsResponse(
     int Page,
     int PageSize);
 
+public record LeadsStatsPeriod(
+    int Leads,
+    int Agendados,
+    int ComConsulta,
+    int Compareceram,
+    int Fecharam,
+    int Cadastros,
+    int Resgates);
+
+public record OrigemBucket(string Nome, int Count);
+
+public record ResponsavelBucket(string Nome, int Leads, int Compareceram, int Fecharam);
+
+public record LeadsStatsResponse(
+    LeadsStatsPeriod Current,
+    LeadsStatsPeriod? Previous,
+    List<OrigemBucket> TopOrigens,
+    List<ResponsavelBucket> TopResponsaveis);
+
 public record LeadSummaryDto(
     Guid Id,
     Guid EmpresaId,

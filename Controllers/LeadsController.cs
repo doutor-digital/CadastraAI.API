@@ -74,6 +74,85 @@ public class LeadsController(AppDbContext db) : ControllerBase
         return Ok(new PaginatedLeadsResponse(items, total, page, pageSize));
     }
 
+    [HttpGet("api/empresas/{empresaId:guid}/leads/stats")]
+    public async Task<ActionResult<LeadsStatsResponse>> Stats(
+        Guid empresaId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] DateTime? prevFrom,
+        [FromQuery] DateTime? prevTo,
+        CancellationToken ct = default)
+    {
+        var userId = User.UserId();
+        if (userId is null) return Unauthorized();
+        if (await MembershipGuard.Find(db, empresaId, userId.Value, ct) is null) return Forbid();
+
+        static DateTime ToUtc(DateTime dt) =>
+            dt.Kind == DateTimeKind.Utc ? dt
+            : dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime()
+            : DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+
+        var fromUtc = from.HasValue ? ToUtc(from.Value) : DateTime.UtcNow.AddYears(-100);
+        var toUtc = to.HasValue ? ToUtc(to.Value) : DateTime.UtcNow.AddDays(1);
+
+        var current = await ComputePeriod(empresaId, fromUtc, toUtc, ct);
+
+        LeadsStatsPeriod? previous = null;
+        if (prevFrom.HasValue && prevTo.HasValue)
+        {
+            previous = await ComputePeriod(empresaId, ToUtc(prevFrom.Value), ToUtc(prevTo.Value), ct);
+        }
+
+        var origensQ = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
+            .GroupBy(l => l.Origem)
+            .Select(g => new OrigemBucket(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count)
+            .Take(10);
+
+        var responsaveisQ = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
+            .GroupBy(l => l.NomeResponsavel)
+            .Select(g => new ResponsavelBucket(
+                g.Key,
+                g.Count(),
+                g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
+                g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento)))
+            .OrderByDescending(x => x.Fecharam)
+            .ThenByDescending(x => x.Leads)
+            .Take(10);
+
+        var origens = await origensQ.ToListAsync(ct);
+        var responsaveis = await responsaveisQ.ToListAsync(ct);
+
+        return Ok(new LeadsStatsResponse(current, previous, origens, responsaveis));
+    }
+
+    private async Task<LeadsStatsPeriod> ComputePeriod(Guid empresaId, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    {
+        var q = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
+
+        // Uma única query que retorna todos os agregados de uma vez (cabe no índice EmpresaId+CreatedAt + 1 join na consulta).
+        var agg = await q
+            .GroupBy(l => 1)
+            .Select(g => new
+            {
+                Leads = g.Count(),
+                Agendados = g.Count(l => l.AgendouConsulta),
+                ComConsulta = g.Count(l => l.Consulta != null),
+                Compareceram = g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
+                Fecharam = g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento),
+                Cadastros = g.Count(l => l.Tipo == "Cadastro"),
+                Resgates = g.Count(l => l.Tipo == "Resgate"),
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return agg is null
+            ? new LeadsStatsPeriod(0, 0, 0, 0, 0, 0, 0)
+            : new LeadsStatsPeriod(agg.Leads, agg.Agendados, agg.ComConsulta, agg.Compareceram, agg.Fecharam, agg.Cadastros, agg.Resgates);
+    }
+
     [HttpGet("api/leads/{leadId:guid}")]
     public async Task<ActionResult<LeadDetailDto>> Get(Guid leadId, CancellationToken ct)
     {
