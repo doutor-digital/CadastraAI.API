@@ -67,6 +67,18 @@ public record LeadDetailDto(
     DateTime CreatedAt,
     ConsultaDto? Consulta);
 
+public record BulkCreateLeadsRequest(
+    [Required] List<CreateLeadRequest> Leads);
+
+public record BulkLeadErrorDto(int Index, string Error);
+
+public record BulkCreateLeadsResponse(
+    int TotalReceived,
+    int CreatedCount,
+    int FailedCount,
+    List<LeadDetailDto> Created,
+    List<BulkLeadErrorDto> Failed);
+
 // ========== Consulta ==========
 
 public record CreateConsultaRequest(

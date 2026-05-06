@@ -94,6 +94,122 @@ public class LeadsController(AppDbContext db) : ControllerBase
         return Ok(MapDetail(lead));
     }
 
+    [HttpPost("api/empresas/{empresaId:guid}/leads/bulk")]
+    public async Task<ActionResult<BulkCreateLeadsResponse>> BulkCreate(
+        Guid empresaId, [FromBody] BulkCreateLeadsRequest req, CancellationToken ct)
+    {
+        const int MaxBatchSize = 5000;
+
+        var userId = User.UserId();
+        if (userId is null) return Unauthorized();
+        if (await MembershipGuard.Find(db, empresaId, userId.Value, ct) is null) return Forbid();
+
+        if (req.Leads is null || req.Leads.Count == 0)
+            return BadRequest(new { message = "Nenhum lead enviado." });
+        if (req.Leads.Count > MaxBatchSize)
+            return BadRequest(new { message = $"Máximo de {MaxBatchSize} leads por importação." });
+
+        var failed = new List<BulkLeadErrorDto>();
+        var pending = new List<Lead>(req.Leads.Count);
+        var pendingIndex = new List<int>(req.Leads.Count);
+        var now = DateTime.UtcNow;
+
+        static DateTime? NormalizeUtc(DateTime? dt)
+        {
+            if (dt is null) return null;
+            return dt.Value.Kind switch
+            {
+                DateTimeKind.Utc => dt.Value,
+                DateTimeKind.Local => dt.Value.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(dt.Value, DateTimeKind.Utc),
+            };
+        }
+
+        for (var i = 0; i < req.Leads.Count; i++)
+        {
+            var item = req.Leads[i];
+            try
+            {
+                if (item is null) throw new ArgumentException("Linha vazia.");
+                if (string.IsNullOrWhiteSpace(item.Nome)) throw new ArgumentException("Nome é obrigatório.");
+                if (string.IsNullOrWhiteSpace(item.Telefone)) throw new ArgumentException("Telefone é obrigatório.");
+                if (string.IsNullOrWhiteSpace(item.Origem)) throw new ArgumentException("Origem é obrigatória.");
+                if (string.IsNullOrWhiteSpace(item.Tipo)) throw new ArgumentException("Tipo é obrigatório.");
+                if (string.IsNullOrWhiteSpace(item.NomeResponsavel)) throw new ArgumentException("Responsável é obrigatório.");
+
+                pending.Add(new Lead
+                {
+                    EmpresaId = empresaId,
+                    Nome = item.Nome.Trim(),
+                    Telefone = item.Telefone.Trim(),
+                    Origem = item.Origem.Trim(),
+                    Tipo = item.Tipo.Trim(),
+                    TipoResgate = item.TipoResgate?.Trim(),
+                    Interacao = item.Interacao,
+                    AgendouConsulta = item.AgendouConsulta,
+                    PagamentoAntecipado = item.PagamentoAntecipado,
+                    DataAgendamento = NormalizeUtc(item.DataAgendamento),
+                    MotivoNaoAgendamento = item.MotivoNaoAgendamento?.Trim(),
+                    NomeResponsavel = item.NomeResponsavel.Trim(),
+                    CreatedAt = now,
+                });
+                pendingIndex.Add(i);
+            }
+            catch (Exception ex)
+            {
+                failed.Add(new BulkLeadErrorDto(i, ex.Message));
+            }
+        }
+
+        var saved = new List<Lead>(pending.Count);
+        if (pending.Count > 0)
+        {
+            // Fast path: tenta o batch inteiro em uma transação.
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                db.Leads.AddRange(pending);
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                saved.AddRange(pending);
+            }
+            catch (Exception)
+            {
+                await tx.RollbackAsync(ct);
+                // Fallback: detach tudo e tenta linha por linha pra isolar quem falha.
+                foreach (var entry in db.ChangeTracker.Entries<Lead>().ToList())
+                    entry.State = EntityState.Detached;
+
+                for (var k = 0; k < pending.Count; k++)
+                {
+                    var lead = pending[k];
+                    var originalIdx = pendingIndex[k];
+                    try
+                    {
+                        db.Leads.Add(lead);
+                        await db.SaveChangesAsync(ct);
+                        db.Entry(lead).State = EntityState.Detached;
+                        saved.Add(lead);
+                    }
+                    catch (Exception rowEx)
+                    {
+                        db.Entry(lead).State = EntityState.Detached;
+                        var msg = (rowEx.GetBaseException() ?? rowEx).Message;
+                        failed.Add(new BulkLeadErrorDto(originalIdx, $"Falha ao gravar: {msg}"));
+                    }
+                }
+            }
+        }
+
+        var created = saved.Select(MapDetail).ToList();
+        return Ok(new BulkCreateLeadsResponse(
+            TotalReceived: req.Leads.Count,
+            CreatedCount: created.Count,
+            FailedCount: failed.Count,
+            Created: created,
+            Failed: failed));
+    }
+
     [HttpPatch("api/leads/{leadId:guid}")]
     public async Task<ActionResult<LeadDetailDto>> Update(
         Guid leadId, [FromBody] UpdateLeadRequest req, CancellationToken ct)
