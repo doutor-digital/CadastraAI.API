@@ -15,7 +15,8 @@ public record CreateLeadRequest(
     bool PagamentoAntecipado,
     DateTime? DataAgendamento,
     [MaxLength(200)] string? MotivoNaoAgendamento,
-    [Required, MaxLength(100)] string NomeResponsavel);
+    [Required, MaxLength(100)] string NomeResponsavel,
+    DateTime? CreatedAt = null);
 
 public record UpdateLeadRequest(
     [MaxLength(200)] string? Nome,

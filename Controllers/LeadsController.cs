@@ -151,7 +151,7 @@ public class LeadsController(AppDbContext db) : ControllerBase
                     DataAgendamento = NormalizeUtc(item.DataAgendamento),
                     MotivoNaoAgendamento = item.MotivoNaoAgendamento?.Trim(),
                     NomeResponsavel = item.NomeResponsavel.Trim(),
-                    CreatedAt = now,
+                    CreatedAt = NormalizeUtc(item.CreatedAt) ?? now,
                 });
                 pendingIndex.Add(i);
             }
