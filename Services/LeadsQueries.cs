@@ -15,6 +15,7 @@ public static class LeadsQueries
         int pageSize,
         string? search,
         string? status,
+        string? fonte,
         CancellationToken ct)
     {
         var q = db.Leads.AsNoTracking().Where(l => l.EmpresaId == empresaId);
@@ -31,6 +32,9 @@ public static class LeadsQueries
 
         if (status == "agendados") q = q.Where(l => l.AgendouConsulta);
         else if (status == "nao_agendados") q = q.Where(l => !l.AgendouConsulta);
+
+        if (fonte == "manual") q = q.Where(l => !l.Importado);
+        else if (fonte == "importado") q = q.Where(l => l.Importado);
 
         var total = await q.CountAsync(ct);
 
@@ -54,6 +58,7 @@ public static class LeadsQueries
                 l.MotivoNaoAgendamento,
                 l.NomeResponsavel,
                 l.CreatedAt,
+                l.Importado,
                 l.Consulta != null,
                 l.Consulta != null ? l.Consulta.Compareceu : null,
                 l.Consulta != null ? l.Consulta.FechouTratamento : null,
@@ -70,26 +75,31 @@ public static class LeadsQueries
         DateTime toUtc,
         DateTime? prevFromUtc,
         DateTime? prevToUtc,
+        string? fonte,
         CancellationToken ct)
     {
-        var current = await ComputePeriodAsync(db, empresaId, fromUtc, toUtc, ct);
+        var current = await ComputePeriodAsync(db, empresaId, fromUtc, toUtc, fonte, ct);
 
         LeadsStatsPeriod? previous = null;
         if (prevFromUtc.HasValue && prevToUtc.HasValue)
         {
-            previous = await ComputePeriodAsync(db, empresaId, prevFromUtc.Value, prevToUtc.Value, ct);
+            previous = await ComputePeriodAsync(db, empresaId, prevFromUtc.Value, prevToUtc.Value, fonte, ct);
         }
 
-        var origens = await db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
+        var origensQ = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
+        origensQ = ApplyFonte(origensQ, fonte);
+        var origens = await origensQ
             .GroupBy(l => l.Origem)
             .Select(g => new OrigemBucket(g.Key, g.Count()))
             .OrderByDescending(x => x.Count)
             .Take(10)
             .ToListAsync(ct);
 
-        var responsaveis = await db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
+        var respQ = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
+        respQ = ApplyFonte(respQ, fonte);
+        var responsaveis = await respQ
             .GroupBy(l => l.NomeResponsavel)
             .Select(g => new ResponsavelBucket(
                 g.Key,
@@ -105,10 +115,13 @@ public static class LeadsQueries
     }
 
     private static async Task<LeadsStatsPeriod> ComputePeriodAsync(
-        AppDbContext db, Guid empresaId, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+        AppDbContext db, Guid empresaId, DateTime fromUtc, DateTime toUtc, string? fonte, CancellationToken ct)
     {
-        var agg = await db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
+        var q = db.Leads.AsNoTracking()
+            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
+        q = ApplyFonte(q, fonte);
+
+        var agg = await q
             .GroupBy(l => 1)
             .Select(g => new
             {
@@ -119,13 +132,25 @@ public static class LeadsQueries
                 Fecharam = g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento),
                 Cadastros = g.Count(l => l.Tipo == "Cadastro"),
                 Resgates = g.Count(l => l.Tipo == "Resgate"),
+                LeadsManuais = g.Count(l => !l.Importado),
+                LeadsImportados = g.Count(l => l.Importado),
             })
             .FirstOrDefaultAsync(ct);
 
         return agg is null
-            ? new LeadsStatsPeriod(0, 0, 0, 0, 0, 0, 0)
-            : new LeadsStatsPeriod(agg.Leads, agg.Agendados, agg.ComConsulta, agg.Compareceram, agg.Fecharam, agg.Cadastros, agg.Resgates);
+            ? new LeadsStatsPeriod(0, 0, 0, 0, 0, 0, 0, 0, 0)
+            : new LeadsStatsPeriod(
+                agg.Leads, agg.Agendados, agg.ComConsulta, agg.Compareceram,
+                agg.Fecharam, agg.Cadastros, agg.Resgates,
+                agg.LeadsManuais, agg.LeadsImportados);
     }
+
+    private static IQueryable<Models.Lead> ApplyFonte(IQueryable<Models.Lead> q, string? fonte) => fonte switch
+    {
+        "manual" => q.Where(l => !l.Importado),
+        "importado" => q.Where(l => l.Importado),
+        _ => q,
+    };
 
     public static DateTime ToUtc(DateTime dt) =>
         dt.Kind == DateTimeKind.Utc ? dt

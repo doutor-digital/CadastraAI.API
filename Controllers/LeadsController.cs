@@ -21,6 +21,7 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         [FromQuery] int pageSize = 100,
         [FromQuery] string? search = null,
         [FromQuery] string? status = null,
+        [FromQuery] string? fonte = null,
         CancellationToken ct = default)
     {
         var userId = User.UserId();
@@ -30,10 +31,10 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         pageSize = Math.Clamp(pageSize, 1, 500);
         page = Math.Max(0, page);
 
-        var keySuffix = $"leads:p{page}:s{pageSize}:q{search?.Trim().ToLower() ?? ""}:st{status ?? ""}";
+        var keySuffix = $"leads:p{page}:s{pageSize}:q{search?.Trim().ToLower() ?? ""}:st{status ?? ""}:fn{fonte ?? ""}";
         var result = await cache.GetOrSetAsync(
             empresaId, keySuffix,
-            innerCt => LeadsQueries.ListAsync(db, empresaId, page, pageSize, search, status, innerCt),
+            innerCt => LeadsQueries.ListAsync(db, empresaId, page, pageSize, search, status, fonte, innerCt),
             ct);
 
         return Ok(result);
@@ -46,6 +47,7 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         [FromQuery] DateTime? to,
         [FromQuery] DateTime? prevFrom,
         [FromQuery] DateTime? prevTo,
+        [FromQuery] string? fonte = null,
         CancellationToken ct = default)
     {
         var userId = User.UserId();
@@ -57,10 +59,10 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         var prevFromUtc = prevFrom.HasValue ? LeadsQueries.ToUtc(prevFrom.Value) : (DateTime?)null;
         var prevToUtc = prevTo.HasValue ? LeadsQueries.ToUtc(prevTo.Value) : (DateTime?)null;
 
-        var keySuffix = $"stats:f{fromUtc.Ticks}:t{toUtc.Ticks}:pf{prevFromUtc?.Ticks ?? 0}:pt{prevToUtc?.Ticks ?? 0}";
+        var keySuffix = $"stats:f{fromUtc.Ticks}:t{toUtc.Ticks}:pf{prevFromUtc?.Ticks ?? 0}:pt{prevToUtc?.Ticks ?? 0}:fn{fonte ?? ""}";
         var result = await cache.GetOrSetAsync(
             empresaId, keySuffix,
-            innerCt => LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, innerCt),
+            innerCt => LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, fonte, innerCt),
             ct);
 
         return Ok(result);
@@ -172,6 +174,7 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
                     MotivoNaoAgendamento = item.MotivoNaoAgendamento?.Trim(),
                     NomeResponsavel = item.NomeResponsavel.Trim(),
                     CreatedAt = NormalizeUtc(item.CreatedAt) ?? now,
+                    Importado = true,
                 });
                 pendingIndex.Add(i);
             }
@@ -298,6 +301,7 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         l.MotivoNaoAgendamento,
         l.NomeResponsavel,
         l.CreatedAt,
+        l.Importado,
         l.Consulta is null ? null : MapConsulta(l.Consulta));
 
     internal static ConsultaDto MapConsulta(Consulta c) => new(

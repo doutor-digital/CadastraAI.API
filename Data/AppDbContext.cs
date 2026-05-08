@@ -65,6 +65,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasIndex(l => l.NomeResponsavel);
         modelBuilder.Entity<Lead>()
             .HasIndex(l => new { l.EmpresaId, l.CreatedAt });
+        modelBuilder.Entity<Lead>()
+            .HasIndex(l => new { l.EmpresaId, l.Importado });
         modelBuilder.Entity<Consulta>()
             .HasIndex(c => c.FechouTratamento);
 

@@ -44,7 +44,9 @@ public record LeadsStatsPeriod(
     int Compareceram,
     int Fecharam,
     int Cadastros,
-    int Resgates);
+    int Resgates,
+    int LeadsManuais,
+    int LeadsImportados);
 
 public record OrigemBucket(string Nome, int Count);
 
@@ -71,6 +73,7 @@ public record LeadSummaryDto(
     string? MotivoNaoAgendamento,
     string NomeResponsavel,
     DateTime CreatedAt,
+    bool Importado,
     bool TemConsulta,
     bool? Compareceu,
     bool? FechouTratamento,
@@ -91,6 +94,7 @@ public record LeadDetailDto(
     string? MotivoNaoAgendamento,
     string NomeResponsavel,
     DateTime CreatedAt,
+    bool Importado,
     ConsultaDto? Consulta);
 
 public record BulkCreateLeadsRequest(
@@ -187,7 +191,8 @@ public record DashboardSyncRequest(
     DateTime? From,
     DateTime? To,
     DateTime? PrevFrom,
-    DateTime? PrevTo);
+    DateTime? PrevTo,
+    string? Fonte);
 
 public record DashboardSyncResponse(
     LeadsStatsResponse Stats,
@@ -197,7 +202,8 @@ public record CreateSnapshotRequest(
     DateTime? From,
     DateTime? To,
     DateTime? PrevFrom,
-    DateTime? PrevTo);
+    DateTime? PrevTo,
+    string? Fonte);
 
 public record DashboardSnapshotDto(
     Guid Id,

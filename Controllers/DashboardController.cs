@@ -31,7 +31,7 @@ public class DashboardController(AppDbContext db, IDashboardCache cache) : Contr
 
         var (fromUtc, toUtc, prevFromUtc, prevToUtc) = ResolvePeriod(req?.From, req?.To, req?.PrevFrom, req?.PrevTo);
 
-        var stats = await LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, ct);
+        var stats = await LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, req?.Fonte, ct);
 
         var snapshot = await PersistSnapshotAsync(empresaId, userId.Value, fromUtc, toUtc, "sync", stats, ct);
 
@@ -49,7 +49,7 @@ public class DashboardController(AppDbContext db, IDashboardCache cache) : Contr
 
         var (fromUtc, toUtc, prevFromUtc, prevToUtc) = ResolvePeriod(req?.From, req?.To, req?.PrevFrom, req?.PrevTo);
 
-        var stats = await LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, ct);
+        var stats = await LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, req?.Fonte, ct);
         var snapshot = await PersistSnapshotAsync(empresaId, userId.Value, fromUtc, toUtc, "manual", stats, ct);
 
         return Ok(ToDto(snapshot, stats));
@@ -101,7 +101,7 @@ public class DashboardController(AppDbContext db, IDashboardCache cache) : Contr
         if (await MembershipGuard.Find(db, snapshot.EmpresaId, userId.Value, ct) is null) return Forbid();
 
         var stats = JsonSerializer.Deserialize<LeadsStatsResponse>(snapshot.PayloadJson, JsonOpts)
-                    ?? new LeadsStatsResponse(new LeadsStatsPeriod(0,0,0,0,0,0,0), null, [], []);
+                    ?? new LeadsStatsResponse(new LeadsStatsPeriod(0,0,0,0,0,0,0,0,0), null, [], []);
 
         return Ok(ToDto(snapshot, stats));
     }

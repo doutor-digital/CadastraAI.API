@@ -49,6 +49,9 @@ public class Lead
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>true quando o lead veio via importação em massa; false quando foi cadastrado manualmente.</summary>
+    public bool Importado { get; set; }
+
     // Navigation
     public Consulta? Consulta { get; set; }
 }
