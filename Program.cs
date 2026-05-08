@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using CadastraAI.API.Auth;
+using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
 using CadastraAI.API.Email;
 using CadastraAI.API.Storage;
@@ -16,6 +17,24 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
 
 builder.Services.AddDbContext<AppDbContext>(opts => opts.UseNpgsql(connectionString));
+
+// ----- Redis cache (dashboard) -----
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(opts =>
+    {
+        opts.Configuration = redisConnection;
+        opts.InstanceName = "cadastraai:";
+    });
+    builder.Services.AddSingleton<IDashboardCache, RedisDashboardCache>();
+}
+else
+{
+    // Dev fallback: in-memory IDistributedCache so the API still boots without Redis configured.
+    builder.Services.AddDistributedMemoryCache();
+    builder.Services.AddSingleton<IDashboardCache, RedisDashboardCache>();
+}
 
 // ----- Auth options -----
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Authentication:Jwt"));

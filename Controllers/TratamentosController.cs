@@ -1,4 +1,5 @@
 using CadastraAI.API.Auth;
+using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
 using CadastraAI.API.Dtos;
 using CadastraAI.API.Models;
@@ -10,7 +11,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class TratamentosController(AppDbContext db) : ControllerBase
+public class TratamentosController(AppDbContext db, IDashboardCache cache) : ControllerBase
 {
     [HttpPost("api/consultas/{consultaId:guid}/tratamento")]
     public async Task<ActionResult<TratamentoDto>> Create(
@@ -38,6 +39,7 @@ public class TratamentosController(AppDbContext db) : ControllerBase
         };
         db.Tratamentos.Add(tratamento);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(consulta.Lead.EmpresaId, ct);
 
         tratamento = await db.Tratamentos.AsNoTracking()
             .Include(t => t.Recebimentos)
@@ -67,6 +69,7 @@ public class TratamentosController(AppDbContext db) : ControllerBase
         if (req.ValorPlano is not null) tratamento.ValorPlano = req.ValorPlano.Value;
 
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(tratamento.Consulta.Lead.EmpresaId, ct);
         return Ok(LeadsController.MapTratamento(tratamento));
     }
 
@@ -82,8 +85,10 @@ public class TratamentosController(AppDbContext db) : ControllerBase
         if (tratamento is null) return NotFound();
         if (await MembershipGuard.Find(db, tratamento.Consulta.Lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
+        var empresaId = tratamento.Consulta.Lead.EmpresaId;
         db.Tratamentos.Remove(tratamento);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(empresaId, ct);
         return NoContent();
     }
 }

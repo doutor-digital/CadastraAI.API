@@ -1,7 +1,9 @@
 using CadastraAI.API.Auth;
+using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
 using CadastraAI.API.Dtos;
 using CadastraAI.API.Models;
+using CadastraAI.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +12,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class LeadsController(AppDbContext db) : ControllerBase
+public class LeadsController(AppDbContext db, IDashboardCache cache) : ControllerBase
 {
     [HttpGet("api/empresas/{empresaId:guid}/leads")]
     public async Task<ActionResult<PaginatedLeadsResponse>> List(
@@ -28,50 +30,13 @@ public class LeadsController(AppDbContext db) : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 500);
         page = Math.Max(0, page);
 
-        var q = db.Leads.AsNoTracking().Where(l => l.EmpresaId == empresaId);
+        var keySuffix = $"leads:p{page}:s{pageSize}:q{search?.Trim().ToLower() ?? ""}:st{status ?? ""}";
+        var result = await cache.GetOrSetAsync(
+            empresaId, keySuffix,
+            innerCt => LeadsQueries.ListAsync(db, empresaId, page, pageSize, search, status, innerCt),
+            ct);
 
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var s = search.Trim().ToLower();
-            q = q.Where(l =>
-                l.Nome.ToLower().Contains(s)
-                || l.Telefone.ToLower().Contains(s)
-                || l.Origem.ToLower().Contains(s)
-                || l.NomeResponsavel.ToLower().Contains(s));
-        }
-
-        if (status == "agendados") q = q.Where(l => l.AgendouConsulta);
-        else if (status == "nao_agendados") q = q.Where(l => !l.AgendouConsulta);
-
-        var total = await q.CountAsync(ct);
-
-        var items = await q
-            .Include(l => l.Consulta)
-            .OrderByDescending(l => l.CreatedAt)
-            .Skip(page * pageSize)
-            .Take(pageSize)
-            .Select(l => new LeadSummaryDto(
-                l.Id,
-                l.EmpresaId,
-                l.Nome,
-                l.Telefone,
-                l.Origem,
-                l.Tipo,
-                l.TipoResgate,
-                l.Interacao,
-                l.AgendouConsulta,
-                l.PagamentoAntecipado,
-                l.DataAgendamento,
-                l.MotivoNaoAgendamento,
-                l.NomeResponsavel,
-                l.CreatedAt,
-                l.Consulta != null,
-                l.Consulta != null ? l.Consulta.Compareceu : null,
-                l.Consulta != null ? l.Consulta.FechouTratamento : null,
-                l.Consulta != null ? l.Consulta.MotivoNaoFechamento : null))
-            .ToListAsync(ct);
-
-        return Ok(new PaginatedLeadsResponse(items, total, page, pageSize));
+        return Ok(result);
     }
 
     [HttpGet("api/empresas/{empresaId:guid}/leads/stats")]
@@ -87,70 +52,18 @@ public class LeadsController(AppDbContext db) : ControllerBase
         if (userId is null) return Unauthorized();
         if (await MembershipGuard.Find(db, empresaId, userId.Value, ct) is null) return Forbid();
 
-        static DateTime ToUtc(DateTime dt) =>
-            dt.Kind == DateTimeKind.Utc ? dt
-            : dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime()
-            : DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        var fromUtc = from.HasValue ? LeadsQueries.ToUtc(from.Value) : DateTime.UtcNow.AddYears(-100);
+        var toUtc = to.HasValue ? LeadsQueries.ToUtc(to.Value) : DateTime.UtcNow.AddDays(1);
+        var prevFromUtc = prevFrom.HasValue ? LeadsQueries.ToUtc(prevFrom.Value) : (DateTime?)null;
+        var prevToUtc = prevTo.HasValue ? LeadsQueries.ToUtc(prevTo.Value) : (DateTime?)null;
 
-        var fromUtc = from.HasValue ? ToUtc(from.Value) : DateTime.UtcNow.AddYears(-100);
-        var toUtc = to.HasValue ? ToUtc(to.Value) : DateTime.UtcNow.AddDays(1);
+        var keySuffix = $"stats:f{fromUtc.Ticks}:t{toUtc.Ticks}:pf{prevFromUtc?.Ticks ?? 0}:pt{prevToUtc?.Ticks ?? 0}";
+        var result = await cache.GetOrSetAsync(
+            empresaId, keySuffix,
+            innerCt => LeadsQueries.StatsAsync(db, empresaId, fromUtc, toUtc, prevFromUtc, prevToUtc, innerCt),
+            ct);
 
-        var current = await ComputePeriod(empresaId, fromUtc, toUtc, ct);
-
-        LeadsStatsPeriod? previous = null;
-        if (prevFrom.HasValue && prevTo.HasValue)
-        {
-            previous = await ComputePeriod(empresaId, ToUtc(prevFrom.Value), ToUtc(prevTo.Value), ct);
-        }
-
-        var origensQ = db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
-            .GroupBy(l => l.Origem)
-            .Select(g => new OrigemBucket(g.Key, g.Count()))
-            .OrderByDescending(x => x.Count)
-            .Take(10);
-
-        var responsaveisQ = db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc)
-            .GroupBy(l => l.NomeResponsavel)
-            .Select(g => new ResponsavelBucket(
-                g.Key,
-                g.Count(),
-                g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
-                g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento)))
-            .OrderByDescending(x => x.Fecharam)
-            .ThenByDescending(x => x.Leads)
-            .Take(10);
-
-        var origens = await origensQ.ToListAsync(ct);
-        var responsaveis = await responsaveisQ.ToListAsync(ct);
-
-        return Ok(new LeadsStatsResponse(current, previous, origens, responsaveis));
-    }
-
-    private async Task<LeadsStatsPeriod> ComputePeriod(Guid empresaId, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
-    {
-        var q = db.Leads.AsNoTracking()
-            .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
-
-        // Uma única query que retorna todos os agregados de uma vez (cabe no índice EmpresaId+CreatedAt + 1 join na consulta).
-        var agg = await q
-            .GroupBy(l => 1)
-            .Select(g => new
-            {
-                Leads = g.Count(),
-                Agendados = g.Count(l => l.AgendouConsulta),
-                ComConsulta = g.Count(l => l.Consulta != null),
-                Compareceram = g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
-                Fecharam = g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento),
-                Cadastros = g.Count(l => l.Tipo == "Cadastro"),
-                Resgates = g.Count(l => l.Tipo == "Resgate"),
-            })
-            .FirstOrDefaultAsync(ct);
-
-        return agg is null
-            ? new LeadsStatsPeriod(0, 0, 0, 0, 0, 0, 0)
-            : new LeadsStatsPeriod(agg.Leads, agg.Agendados, agg.ComConsulta, agg.Compareceram, agg.Fecharam, agg.Cadastros, agg.Resgates);
+        return Ok(result);
     }
 
     [HttpGet("api/leads/{leadId:guid}")]
@@ -196,6 +109,7 @@ public class LeadsController(AppDbContext db) : ControllerBase
         };
         db.Leads.Add(lead);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(empresaId, ct);
 
         return Ok(MapDetail(lead));
     }
@@ -307,6 +221,11 @@ public class LeadsController(AppDbContext db) : ControllerBase
             }
         }
 
+        if (saved.Count > 0)
+        {
+            await cache.InvalidateEmpresaAsync(empresaId, ct);
+        }
+
         var created = saved.Select(MapDetail).ToList();
         return Ok(new BulkCreateLeadsResponse(
             TotalReceived: req.Leads.Count,
@@ -343,6 +262,7 @@ public class LeadsController(AppDbContext db) : ControllerBase
         if (req.NomeResponsavel is not null) lead.NomeResponsavel = req.NomeResponsavel.Trim();
 
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(lead.EmpresaId, ct);
         return Ok(MapDetail(lead));
     }
 
@@ -356,8 +276,10 @@ public class LeadsController(AppDbContext db) : ControllerBase
         if (lead is null) return NotFound();
         if (await MembershipGuard.Find(db, lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
+        var empresaId = lead.EmpresaId;
         db.Leads.Remove(lead);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(empresaId, ct);
         return NoContent();
     }
 

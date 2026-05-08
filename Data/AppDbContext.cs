@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Tratamento> Tratamentos => Set<Tratamento>();
     public DbSet<Recebimento> Recebimentos => Set<Recebimento>();
     public DbSet<MotivoNaoFechamento> MotivosNaoFechamento => Set<MotivoNaoFechamento>();
+    public DbSet<DashboardSnapshot> DashboardSnapshots => Set<DashboardSnapshot>();
 
     // Auth + Tenancy
     public DbSet<User> Users => Set<User>();
@@ -76,6 +77,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithMany()
             .HasForeignKey(m => m.EmpresaId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Dashboard snapshots — listagem por empresa ordenada por data de captura.
+        modelBuilder.Entity<DashboardSnapshot>()
+            .HasIndex(s => new { s.EmpresaId, s.CapturedAt });
+        modelBuilder.Entity<DashboardSnapshot>()
+            .HasOne(s => s.Empresa)
+            .WithMany()
+            .HasForeignKey(s => s.EmpresaId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<DashboardSnapshot>()
+            .HasOne(s => s.CapturedBy)
+            .WithMany()
+            .HasForeignKey(s => s.CapturedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ----- Auth / Tenancy -----
 

@@ -1,4 +1,5 @@
 using CadastraAI.API.Auth;
+using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
 using CadastraAI.API.Dtos;
 using CadastraAI.API.Models;
@@ -10,7 +11,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class RecebimentosController(AppDbContext db) : ControllerBase
+public class RecebimentosController(AppDbContext db, IDashboardCache cache) : ControllerBase
 {
     private const int MaxRecebimentosConsulta = 2;
     private const int MaxRecebimentosTratamento = 6;
@@ -41,6 +42,7 @@ public class RecebimentosController(AppDbContext db) : ControllerBase
         };
         db.Recebimentos.Add(recebimento);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(consulta.Lead.EmpresaId, ct);
 
         return Ok(LeadsController.MapRecebimento(recebimento));
     }
@@ -73,6 +75,7 @@ public class RecebimentosController(AppDbContext db) : ControllerBase
         };
         db.Recebimentos.Add(recebimento);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(tratamento.Consulta.Lead.EmpresaId, ct);
 
         return Ok(LeadsController.MapRecebimento(recebimento));
     }
@@ -96,6 +99,7 @@ public class RecebimentosController(AppDbContext db) : ControllerBase
 
         db.Recebimentos.Remove(recebimento);
         await db.SaveChangesAsync(ct);
+        await cache.InvalidateEmpresaAsync(empresaId.Value, ct);
         return NoContent();
     }
 }

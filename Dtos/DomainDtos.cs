@@ -181,6 +181,45 @@ public record RecebimentoDto(
     string FormaPagamento,
     DateTime DataRecebimento);
 
+// ========== Dashboard ==========
+
+public record DashboardSyncRequest(
+    DateTime? From,
+    DateTime? To,
+    DateTime? PrevFrom,
+    DateTime? PrevTo);
+
+public record DashboardSyncResponse(
+    LeadsStatsResponse Stats,
+    DashboardSnapshotDto Snapshot);
+
+public record CreateSnapshotRequest(
+    DateTime? From,
+    DateTime? To,
+    DateTime? PrevFrom,
+    DateTime? PrevTo);
+
+public record DashboardSnapshotDto(
+    Guid Id,
+    Guid EmpresaId,
+    Guid CapturedByUserId,
+    string CapturedByName,
+    DateTime CapturedAt,
+    DateTime? PeriodFrom,
+    DateTime? PeriodTo,
+    string Source,
+    LeadsStatsResponse Stats);
+
+public record DashboardSnapshotSummaryDto(
+    Guid Id,
+    Guid EmpresaId,
+    Guid CapturedByUserId,
+    string CapturedByName,
+    DateTime CapturedAt,
+    DateTime? PeriodFrom,
+    DateTime? PeriodTo,
+    string Source);
+
 // ========== MotivoNaoFechamento ==========
 
 public record CreateMotivoNaoFechamentoRequest(
