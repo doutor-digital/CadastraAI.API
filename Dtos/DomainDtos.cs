@@ -290,7 +290,12 @@ public record SaveKommoConfigRequest(
     string AccessToken,
     string? WebhookSecret);
 
-public record KommoSyncRequest(int? Limit, int? Page, string? Query);
+public record KommoSyncRequest(
+    int? Limit,
+    int? Page,
+    string? Query,
+    DateTime? CreatedAtFrom,
+    DateTime? CreatedAtTo);
 
 public record KommoSyncResponse(int Received, int Stored, DateTime LastSyncAt);
 

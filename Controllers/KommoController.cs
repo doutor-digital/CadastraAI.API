@@ -127,13 +127,17 @@ public class KommoController(
         if (cfg is null) return StatusCode(StatusCodes.Status412PreconditionFailed, new { message = "Kommo não configurado." });
 
         var token = protector.Decrypt(cfg.AccessTokenEncrypted);
-        var limit = Math.Clamp(req.Limit ?? 50, 1, 250);
-        var page = Math.Max(req.Page ?? 1, 1);
+        var options = new KommoListLeadsOptions(
+            Limit: Math.Clamp(req.Limit ?? 50, 1, 250),
+            Page: Math.Max(req.Page ?? 1, 1),
+            Query: req.Query,
+            CreatedAtFrom: req.CreatedAtFrom,
+            CreatedAtTo: req.CreatedAtTo);
 
         List<JsonElement> records;
         try
         {
-            records = await kommo.ListLeadsWithContactsAsync(cfg.Subdomain, token, limit, page, req.Query, ct);
+            records = await kommo.ListLeadsWithContactsAsync(cfg.Subdomain, token, options, ct);
         }
         catch (Exception ex)
         {
@@ -180,7 +184,13 @@ public class KommoController(
         await db.SaveChangesAsync(ct);
         await audit.LogAsync(
             empresaId, "kommo.sync", "KommoIntegration", cfg.Id, cfg.Subdomain,
-            extraMeta: new Dictionary<string, object?> { ["received"] = records.Count, ["stored"] = stored }, ct: ct);
+            extraMeta: new Dictionary<string, object?>
+            {
+                ["received"] = records.Count,
+                ["stored"] = stored,
+                ["createdAtFrom"] = req.CreatedAtFrom?.ToString("o"),
+                ["createdAtTo"] = req.CreatedAtTo?.ToString("o"),
+            }, ct: ct);
 
         return Ok(new KommoSyncResponse(records.Count, stored, now));
     }

@@ -48,20 +48,28 @@ public class KommoClient(HttpClient http) : IKommoClient
     public async Task<List<JsonElement>> ListLeadsWithContactsAsync(
         string subdomain,
         string accessToken,
-        int limit,
-        int page,
-        string? query,
+        KommoListLeadsOptions options,
         CancellationToken ct)
     {
-        limit = Math.Clamp(limit, 1, 250);
-        page = Math.Max(page, 1);
+        var limit = Math.Clamp(options.Limit, 1, 250);
+        var page = Math.Max(options.Page, 1);
         var qsParts = new List<string>
         {
             $"limit={limit}",
             $"page={page}",
             "with=contacts",
         };
-        if (!string.IsNullOrWhiteSpace(query)) qsParts.Add($"query={Uri.EscapeDataString(query)}");
+        if (!string.IsNullOrWhiteSpace(options.Query)) qsParts.Add($"query={Uri.EscapeDataString(options.Query)}");
+        if (options.CreatedAtFrom is not null)
+        {
+            var from = ToUnixSeconds(options.CreatedAtFrom.Value);
+            qsParts.Add($"filter[created_at][from]={from}");
+        }
+        if (options.CreatedAtTo is not null)
+        {
+            var to = ToUnixSeconds(options.CreatedAtTo.Value);
+            qsParts.Add($"filter[created_at][to]={to}");
+        }
         var path = $"/api/v4/leads?{string.Join('&', qsParts)}";
 
         var root = await GetAsync(subdomain, accessToken, path, ct);
@@ -115,4 +123,15 @@ public class KommoClient(HttpClient http) : IKommoClient
     }
 
     private static string Trim(string s, int max) => s.Length <= max ? s : s[..max];
+
+    private static long ToUnixSeconds(DateTime dt)
+    {
+        var utc = dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc),
+        };
+        return new DateTimeOffset(utc).ToUnixTimeSeconds();
+    }
 }
