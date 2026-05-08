@@ -28,4 +28,12 @@ public class Recebimento
     public Guid? TratamentoId { get; set; }
     [ForeignKey(nameof(TratamentoId))]
     public Tratamento? Tratamento { get; set; }
+
+    /// <summary>Usuário que registrou o recebimento (null para registros antigos).</summary>
+    public Guid? CreatedByUserId { get; set; }
+
+    [ForeignKey(nameof(CreatedByUserId))]
+    public User? CreatedBy { get; set; }
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

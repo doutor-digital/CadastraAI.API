@@ -1,3 +1,4 @@
+using CadastraAI.API.Audit;
 using CadastraAI.API.Auth;
 using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
@@ -12,7 +13,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class LeadsController(AppDbContext db, IDashboardCache cache) : ControllerBase
+public class LeadsController(AppDbContext db, IDashboardCache cache, IAuditLogger audit) : ControllerBase
 {
     [HttpGet("api/empresas/{empresaId:guid}/leads")]
     public async Task<ActionResult<PaginatedLeadsResponse>> List(
@@ -75,6 +76,9 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         if (userId is null) return Unauthorized();
 
         var lead = await db.Leads.AsNoTracking()
+            .Include(l => l.CreatedBy)
+            .Include(l => l.Consulta).ThenInclude(c => c!.CreatedBy)
+            .Include(l => l.Consulta).ThenInclude(c => c!.Tratamento).ThenInclude(t => t!.CreatedBy)
             .Include(l => l.Consulta).ThenInclude(c => c!.Tratamento).ThenInclude(t => t!.Recebimentos)
             .Include(l => l.Consulta).ThenInclude(c => c!.Recebimentos)
             .FirstOrDefaultAsync(l => l.Id == leadId, ct);
@@ -108,10 +112,12 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
             MotivoNaoAgendamento = req.MotivoNaoAgendamento?.Trim(),
             NomeResponsavel = req.NomeResponsavel.Trim(),
             CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = userId,
         };
         db.Leads.Add(lead);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(empresaId, ct);
+        await audit.LogAsync(empresaId, "lead.create", "Lead", lead.Id, lead.Nome, ct: ct);
 
         return Ok(MapDetail(lead));
     }
@@ -175,6 +181,7 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
                     NomeResponsavel = item.NomeResponsavel.Trim(),
                     CreatedAt = NormalizeUtc(item.CreatedAt) ?? now,
                     Importado = true,
+                    CreatedByUserId = userId,
                 });
                 pendingIndex.Add(i);
             }
@@ -227,6 +234,18 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         if (saved.Count > 0)
         {
             await cache.InvalidateEmpresaAsync(empresaId, ct);
+            await audit.LogAsync(
+                empresaId,
+                "lead.bulk_import",
+                "Lead",
+                null,
+                entityLabel: $"{saved.Count} leads",
+                extraMeta: new Dictionary<string, object?>
+                {
+                    ["count"] = saved.Count,
+                    ["failedCount"] = failed.Count,
+                },
+                ct: ct);
         }
 
         var created = saved.Select(MapDetail).ToList();
@@ -252,20 +271,25 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         if (lead is null) return NotFound();
         if (await MembershipGuard.Find(db, lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
-        if (req.Nome is not null) lead.Nome = req.Nome.Trim();
-        if (req.Telefone is not null) lead.Telefone = req.Telefone.Trim();
-        if (req.Origem is not null) lead.Origem = req.Origem.Trim();
-        if (req.Tipo is not null) lead.Tipo = req.Tipo.Trim();
-        if (req.TipoResgate is not null) lead.TipoResgate = req.TipoResgate.Trim();
-        if (req.Interacao is not null) lead.Interacao = req.Interacao.Value;
-        if (req.AgendouConsulta is not null) lead.AgendouConsulta = req.AgendouConsulta.Value;
-        if (req.PagamentoAntecipado is not null) lead.PagamentoAntecipado = req.PagamentoAntecipado.Value;
-        if (req.DataAgendamento is not null) lead.DataAgendamento = req.DataAgendamento;
-        if (req.MotivoNaoAgendamento is not null) lead.MotivoNaoAgendamento = req.MotivoNaoAgendamento.Trim();
-        if (req.NomeResponsavel is not null) lead.NomeResponsavel = req.NomeResponsavel.Trim();
+        var changed = new List<string>();
+        if (req.Nome is not null && lead.Nome != req.Nome.Trim()) { lead.Nome = req.Nome.Trim(); changed.Add(nameof(Lead.Nome)); }
+        if (req.Telefone is not null && lead.Telefone != req.Telefone.Trim()) { lead.Telefone = req.Telefone.Trim(); changed.Add(nameof(Lead.Telefone)); }
+        if (req.Origem is not null && lead.Origem != req.Origem.Trim()) { lead.Origem = req.Origem.Trim(); changed.Add(nameof(Lead.Origem)); }
+        if (req.Tipo is not null && lead.Tipo != req.Tipo.Trim()) { lead.Tipo = req.Tipo.Trim(); changed.Add(nameof(Lead.Tipo)); }
+        if (req.TipoResgate is not null && lead.TipoResgate != req.TipoResgate.Trim()) { lead.TipoResgate = req.TipoResgate.Trim(); changed.Add(nameof(Lead.TipoResgate)); }
+        if (req.Interacao is not null && lead.Interacao != req.Interacao.Value) { lead.Interacao = req.Interacao.Value; changed.Add(nameof(Lead.Interacao)); }
+        if (req.AgendouConsulta is not null && lead.AgendouConsulta != req.AgendouConsulta.Value) { lead.AgendouConsulta = req.AgendouConsulta.Value; changed.Add(nameof(Lead.AgendouConsulta)); }
+        if (req.PagamentoAntecipado is not null && lead.PagamentoAntecipado != req.PagamentoAntecipado.Value) { lead.PagamentoAntecipado = req.PagamentoAntecipado.Value; changed.Add(nameof(Lead.PagamentoAntecipado)); }
+        if (req.DataAgendamento is not null && lead.DataAgendamento != req.DataAgendamento) { lead.DataAgendamento = req.DataAgendamento; changed.Add(nameof(Lead.DataAgendamento)); }
+        if (req.MotivoNaoAgendamento is not null && lead.MotivoNaoAgendamento != req.MotivoNaoAgendamento.Trim()) { lead.MotivoNaoAgendamento = req.MotivoNaoAgendamento.Trim(); changed.Add(nameof(Lead.MotivoNaoAgendamento)); }
+        if (req.NomeResponsavel is not null && lead.NomeResponsavel != req.NomeResponsavel.Trim()) { lead.NomeResponsavel = req.NomeResponsavel.Trim(); changed.Add(nameof(Lead.NomeResponsavel)); }
 
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(lead.EmpresaId, ct);
+        if (changed.Count > 0)
+        {
+            await audit.LogAsync(lead.EmpresaId, "lead.update", "Lead", lead.Id, lead.Nome, changedFields: changed, ct: ct);
+        }
         return Ok(MapDetail(lead));
     }
 
@@ -280,9 +304,11 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         if (await MembershipGuard.Find(db, lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
         var empresaId = lead.EmpresaId;
+        var nome = lead.Nome;
         db.Leads.Remove(lead);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(empresaId, ct);
+        await audit.LogAsync(empresaId, "lead.delete", "Lead", leadId, nome, ct: ct);
         return NoContent();
     }
 
@@ -313,6 +339,14 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
 
         var deleted = await q.ExecuteDeleteAsync(ct);
         await cache.InvalidateEmpresaAsync(empresaId, ct);
+        await audit.LogAsync(
+            empresaId,
+            "lead.bulk_delete",
+            "Lead",
+            null,
+            entityLabel: $"{deleted} leads",
+            extraMeta: new Dictionary<string, object?> { ["count"] = deleted, ["fonte"] = fonte },
+            ct: ct);
         return Ok(new { deleted });
     }
 
@@ -332,6 +366,8 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         l.NomeResponsavel,
         l.CreatedAt,
         l.Importado,
+        l.CreatedByUserId,
+        l.CreatedBy?.Name,
         l.Consulta is null ? null : MapConsulta(l.Consulta));
 
     internal static ConsultaDto MapConsulta(Consulta c) => new(
@@ -345,6 +381,8 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         c.FechouTratamento,
         c.MotivoNaoFechamento,
         c.CreatedAt,
+        c.CreatedByUserId,
+        c.CreatedBy?.Name,
         c.Tratamento is null ? null : MapTratamento(c.Tratamento),
         c.Recebimentos.Select(MapRecebimento).ToList());
 
@@ -357,6 +395,8 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         t.Procedimento,
         t.ValorPlano,
         t.CreatedAt,
+        t.CreatedByUserId,
+        t.CreatedBy?.Name,
         t.Recebimentos.Select(MapRecebimento).ToList());
 
     internal static RecebimentoDto MapRecebimento(Recebimento r) => new(
@@ -365,5 +405,8 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         r.TratamentoId,
         r.ValorRecebimento,
         r.FormaPagamento,
-        r.DataRecebimento);
+        r.DataRecebimento,
+        r.CreatedByUserId,
+        r.CreatedBy?.Name,
+        r.CreatedAt);
 }

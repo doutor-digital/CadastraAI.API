@@ -1,3 +1,4 @@
+using CadastraAI.API.Audit;
 using CadastraAI.API.Auth;
 using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
@@ -11,7 +12,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class TratamentosController(AppDbContext db, IDashboardCache cache) : ControllerBase
+public class TratamentosController(AppDbContext db, IDashboardCache cache, IAuditLogger audit) : ControllerBase
 {
     [HttpPost("api/consultas/{consultaId:guid}/tratamento")]
     public async Task<ActionResult<TratamentoDto>> Create(
@@ -36,12 +37,15 @@ public class TratamentosController(AppDbContext db, IDashboardCache cache) : Con
             Procedimento = req.Procedimento?.Trim(),
             ValorPlano = req.ValorPlano,
             CreatedAt = DateTime.UtcNow,
+            CreatedByUserId = userId,
         };
         db.Tratamentos.Add(tratamento);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(consulta.Lead.EmpresaId, ct);
+        await audit.LogAsync(consulta.Lead.EmpresaId, "tratamento.create", "Tratamento", tratamento.Id, consulta.Lead.Nome, ct: ct);
 
         tratamento = await db.Tratamentos.AsNoTracking()
+            .Include(t => t.CreatedBy)
             .Include(t => t.Recebimentos)
             .FirstAsync(t => t.Id == tratamento.Id, ct);
 
@@ -62,14 +66,19 @@ public class TratamentosController(AppDbContext db, IDashboardCache cache) : Con
         if (tratamento is null) return NotFound();
         if (await MembershipGuard.Find(db, tratamento.Consulta.Lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
-        if (req.PlanoTratamento is not null) tratamento.PlanoTratamento = req.PlanoTratamento.Trim();
-        if (req.PlanoPilates is not null) tratamento.PlanoPilates = req.PlanoPilates.Trim();
-        if (req.Musculacao is not null) tratamento.Musculacao = req.Musculacao.Trim();
-        if (req.Procedimento is not null) tratamento.Procedimento = req.Procedimento.Trim();
-        if (req.ValorPlano is not null) tratamento.ValorPlano = req.ValorPlano.Value;
+        var changed = new List<string>();
+        if (req.PlanoTratamento is not null && tratamento.PlanoTratamento != req.PlanoTratamento.Trim()) { tratamento.PlanoTratamento = req.PlanoTratamento.Trim(); changed.Add(nameof(Tratamento.PlanoTratamento)); }
+        if (req.PlanoPilates is not null && tratamento.PlanoPilates != req.PlanoPilates.Trim()) { tratamento.PlanoPilates = req.PlanoPilates.Trim(); changed.Add(nameof(Tratamento.PlanoPilates)); }
+        if (req.Musculacao is not null && tratamento.Musculacao != req.Musculacao.Trim()) { tratamento.Musculacao = req.Musculacao.Trim(); changed.Add(nameof(Tratamento.Musculacao)); }
+        if (req.Procedimento is not null && tratamento.Procedimento != req.Procedimento.Trim()) { tratamento.Procedimento = req.Procedimento.Trim(); changed.Add(nameof(Tratamento.Procedimento)); }
+        if (req.ValorPlano is not null && tratamento.ValorPlano != req.ValorPlano.Value) { tratamento.ValorPlano = req.ValorPlano.Value; changed.Add(nameof(Tratamento.ValorPlano)); }
 
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(tratamento.Consulta.Lead.EmpresaId, ct);
+        if (changed.Count > 0)
+        {
+            await audit.LogAsync(tratamento.Consulta.Lead.EmpresaId, "tratamento.update", "Tratamento", tratamento.Id, tratamento.Consulta.Lead.Nome, changedFields: changed, ct: ct);
+        }
         return Ok(LeadsController.MapTratamento(tratamento));
     }
 
@@ -86,9 +95,11 @@ public class TratamentosController(AppDbContext db, IDashboardCache cache) : Con
         if (await MembershipGuard.Find(db, tratamento.Consulta.Lead.EmpresaId, userId.Value, ct) is null) return Forbid();
 
         var empresaId = tratamento.Consulta.Lead.EmpresaId;
+        var leadNome = tratamento.Consulta.Lead.Nome;
         db.Tratamentos.Remove(tratamento);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(empresaId, ct);
+        await audit.LogAsync(empresaId, "tratamento.delete", "Tratamento", tratamentoId, leadNome, ct: ct);
         return NoContent();
     }
 }

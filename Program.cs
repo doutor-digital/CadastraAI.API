@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using CadastraAI.API.Admin;
+using CadastraAI.API.Audit;
 using CadastraAI.API.Auth;
 using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
 using CadastraAI.API.Email;
+using CadastraAI.API.Kommo;
 using CadastraAI.API.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -48,6 +50,18 @@ builder.Services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
 
 // ----- Storage -----
 builder.Services.AddSingleton<ILocalFileStorage, LocalFileStorage>();
+
+// ----- Audit -----
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+
+// ----- Kommo integration -----
+builder.Services.AddDataProtection();
+builder.Services.AddSingleton<IKommoTokenProtector, KommoTokenProtector>();
+builder.Services.AddHttpClient<IKommoClient, KommoClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 // ----- Admin (request log + Basic Auth gate) -----
 builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection("Admin"));

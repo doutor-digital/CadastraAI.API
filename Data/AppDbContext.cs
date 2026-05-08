@@ -13,6 +13,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MotivoNaoFechamento> MotivosNaoFechamento => Set<MotivoNaoFechamento>();
     public DbSet<DashboardSnapshot> DashboardSnapshots => Set<DashboardSnapshot>();
 
+    // Auditoria
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    // Integrações
+    public DbSet<KommoIntegration> KommoIntegrations => Set<KommoIntegration>();
+    public DbSet<KommoInboxItem> KommoInboxItems => Set<KommoInboxItem>();
+
     // Auth + Tenancy
     public DbSet<User> Users => Set<User>();
     public DbSet<Empresa> Empresas => Set<Empresa>();
@@ -143,5 +150,52 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithMany()
             .HasForeignKey(i => i.InvitedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // ----- Audit log + CreatedBy -----
+
+        // Restrict pra não cascatear delete de User → AuditLog (queremos manter histórico).
+        modelBuilder.Entity<AuditLog>()
+            .HasOne(a => a.User).WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<AuditLog>()
+            .HasOne(a => a.Empresa).WithMany().HasForeignKey(a => a.EmpresaId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AuditLog>().HasIndex(a => new { a.EmpresaId, a.At });
+        modelBuilder.Entity<AuditLog>().HasIndex(a => new { a.EmpresaId, a.Action });
+        modelBuilder.Entity<AuditLog>().HasIndex(a => new { a.EmpresaId, a.UserId });
+
+        // CreatedByUserId nas entidades de domínio: SetNull no delete de User (preserva o registro
+        // mas zera a referência), e Restrict não funciona porque o Owner do empresa pode ser quem criou.
+        modelBuilder.Entity<Lead>()
+            .HasOne(l => l.CreatedBy).WithMany().HasForeignKey(l => l.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Consulta>()
+            .HasOne(c => c.CreatedBy).WithMany().HasForeignKey(c => c.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Tratamento>()
+            .HasOne(t => t.CreatedBy).WithMany().HasForeignKey(t => t.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<Recebimento>()
+            .HasOne(r => r.CreatedBy).WithMany().HasForeignKey(r => r.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<Lead>().HasIndex(l => l.CreatedByUserId);
+        modelBuilder.Entity<Consulta>().HasIndex(c => c.CreatedByUserId);
+        modelBuilder.Entity<Tratamento>().HasIndex(t => t.CreatedByUserId);
+        modelBuilder.Entity<Recebimento>().HasIndex(r => r.CreatedByUserId);
+
+        // ----- Kommo integration -----
+
+        modelBuilder.Entity<KommoIntegration>()
+            .HasIndex(k => k.EmpresaId).IsUnique();
+        modelBuilder.Entity<KommoIntegration>()
+            .HasOne(k => k.Empresa).WithMany().HasForeignKey(k => k.EmpresaId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<KommoIntegration>()
+            .HasOne(k => k.CreatedBy).WithMany().HasForeignKey(k => k.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<KommoInboxItem>()
+            .HasOne(i => i.Empresa).WithMany().HasForeignKey(i => i.EmpresaId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<KommoInboxItem>()
+            .HasOne(i => i.ImportedLead).WithMany().HasForeignKey(i => i.ImportedLeadId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<KommoInboxItem>()
+            .HasOne(i => i.ImportedBy).WithMany().HasForeignKey(i => i.ImportedByUserId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<KommoInboxItem>()
+            .HasIndex(i => new { i.EmpresaId, i.Status, i.ReceivedAt });
+        modelBuilder.Entity<KommoInboxItem>()
+            .HasIndex(i => new { i.EmpresaId, i.KommoLeadId });
     }
 }

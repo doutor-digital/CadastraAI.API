@@ -52,6 +52,15 @@ public class Lead
     /// <summary>true quando o lead veio via importação em massa; false quando foi cadastrado manualmente.</summary>
     public bool Importado { get; set; }
 
+    /// <summary>
+    /// Usuário que criou o registro. Nullable porque registros antigos (anteriores à
+    /// migration de auditoria) não têm autor conhecido — o frontend mostra "—" nesses casos.
+    /// </summary>
+    public Guid? CreatedByUserId { get; set; }
+
+    [ForeignKey(nameof(CreatedByUserId))]
+    public User? CreatedBy { get; set; }
+
     // Navigation
     public Consulta? Consulta { get; set; }
 }

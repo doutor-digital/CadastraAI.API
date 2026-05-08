@@ -43,6 +43,12 @@ public class Tratamento
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Usuário que criou o registro (null para tratamentos anteriores à auditoria).</summary>
+    public Guid? CreatedByUserId { get; set; }
+
+    [ForeignKey(nameof(CreatedByUserId))]
+    public User? CreatedBy { get; set; }
+
     // Navigation — até 6 recebimentos
     public ICollection<Recebimento> Recebimentos { get; set; } = new List<Recebimento>();
 }

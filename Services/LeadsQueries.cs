@@ -59,6 +59,8 @@ public static class LeadsQueries
                 l.NomeResponsavel,
                 l.CreatedAt,
                 l.Importado,
+                l.CreatedByUserId,
+                l.CreatedBy != null ? l.CreatedBy.Name : null,
                 l.Consulta != null,
                 l.Consulta != null ? l.Consulta.Compareceu : null,
                 l.Consulta != null ? l.Consulta.FechouTratamento : null,

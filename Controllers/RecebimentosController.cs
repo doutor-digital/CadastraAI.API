@@ -1,3 +1,4 @@
+using CadastraAI.API.Audit;
 using CadastraAI.API.Auth;
 using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
@@ -11,7 +12,7 @@ namespace CadastraAI.API.Controllers;
 
 [ApiController]
 [Authorize]
-public class RecebimentosController(AppDbContext db, IDashboardCache cache) : ControllerBase
+public class RecebimentosController(AppDbContext db, IDashboardCache cache, IAuditLogger audit) : ControllerBase
 {
     private const int MaxRecebimentosConsulta = 2;
     private const int MaxRecebimentosTratamento = 6;
@@ -39,10 +40,13 @@ public class RecebimentosController(AppDbContext db, IDashboardCache cache) : Co
             ValorRecebimento = req.ValorRecebimento,
             FormaPagamento = req.FormaPagamento.Trim(),
             DataRecebimento = req.DataRecebimento,
+            CreatedByUserId = userId,
+            CreatedAt = DateTime.UtcNow,
         };
         db.Recebimentos.Add(recebimento);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(consulta.Lead.EmpresaId, ct);
+        await audit.LogAsync(consulta.Lead.EmpresaId, "recebimento.create", "Recebimento", recebimento.Id, $"{consulta.Lead.Nome} (consulta)", ct: ct);
 
         return Ok(LeadsController.MapRecebimento(recebimento));
     }
@@ -72,10 +76,13 @@ public class RecebimentosController(AppDbContext db, IDashboardCache cache) : Co
             ValorRecebimento = req.ValorRecebimento,
             FormaPagamento = req.FormaPagamento.Trim(),
             DataRecebimento = req.DataRecebimento,
+            CreatedByUserId = userId,
+            CreatedAt = DateTime.UtcNow,
         };
         db.Recebimentos.Add(recebimento);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(tratamento.Consulta.Lead.EmpresaId, ct);
+        await audit.LogAsync(tratamento.Consulta.Lead.EmpresaId, "recebimento.create", "Recebimento", recebimento.Id, $"{tratamento.Consulta.Lead.Nome} (tratamento)", ct: ct);
 
         return Ok(LeadsController.MapRecebimento(recebimento));
     }
@@ -97,9 +104,11 @@ public class RecebimentosController(AppDbContext db, IDashboardCache cache) : Co
         if (empresaId is null) return NotFound();
         if (await MembershipGuard.Find(db, empresaId.Value, userId.Value, ct) is null) return Forbid();
 
+        var label = recebimento.Consulta?.Lead.Nome ?? recebimento.Tratamento?.Consulta.Lead.Nome ?? "—";
         db.Recebimentos.Remove(recebimento);
         await db.SaveChangesAsync(ct);
         await cache.InvalidateEmpresaAsync(empresaId.Value, ct);
+        await audit.LogAsync(empresaId.Value, "recebimento.delete", "Recebimento", recebimentoId, label, ct: ct);
         return NoContent();
     }
 }

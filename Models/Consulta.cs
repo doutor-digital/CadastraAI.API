@@ -42,6 +42,12 @@ public class Consulta
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Usuário que criou o registro (null para consultas anteriores à auditoria).</summary>
+    public Guid? CreatedByUserId { get; set; }
+
+    [ForeignKey(nameof(CreatedByUserId))]
+    public User? CreatedBy { get; set; }
+
     // Navigation
     public ICollection<Recebimento> Recebimentos { get; set; } = new List<Recebimento>();
     public Tratamento? Tratamento { get; set; }

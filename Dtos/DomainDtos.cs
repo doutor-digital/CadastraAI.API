@@ -74,6 +74,8 @@ public record LeadSummaryDto(
     string NomeResponsavel,
     DateTime CreatedAt,
     bool Importado,
+    Guid? CreatedByUserId,
+    string? CreatedByName,
     bool TemConsulta,
     bool? Compareceu,
     bool? FechouTratamento,
@@ -98,6 +100,8 @@ public record LeadDetailDto(
     string NomeResponsavel,
     DateTime CreatedAt,
     bool Importado,
+    Guid? CreatedByUserId,
+    string? CreatedByName,
     ConsultaDto? Consulta);
 
 public record BulkCreateLeadsRequest(
@@ -143,6 +147,8 @@ public record ConsultaDto(
     bool FechouTratamento,
     string? MotivoNaoFechamento,
     DateTime CreatedAt,
+    Guid? CreatedByUserId,
+    string? CreatedByName,
     TratamentoDto? Tratamento,
     List<RecebimentoDto> Recebimentos);
 
@@ -171,6 +177,8 @@ public record TratamentoDto(
     string? Procedimento,
     decimal ValorPlano,
     DateTime CreatedAt,
+    Guid? CreatedByUserId,
+    string? CreatedByName,
     List<RecebimentoDto> Recebimentos);
 
 // ========== Recebimento ==========
@@ -186,7 +194,10 @@ public record RecebimentoDto(
     Guid? TratamentoId,
     decimal ValorRecebimento,
     string FormaPagamento,
-    DateTime DataRecebimento);
+    DateTime DataRecebimento,
+    Guid? CreatedByUserId,
+    string? CreatedByName,
+    DateTime? CreatedAt);
 
 // ========== Dashboard ==========
 
@@ -242,3 +253,56 @@ public record MotivoNaoFechamentoDto(
     string Cor,
     bool IsDefault,
     DateTime CreatedAt);
+
+// ========== Audit Log ==========
+
+public record AuditLogEntryDto(
+    Guid Id,
+    Guid EmpresaId,
+    Guid? UserId,
+    string? UserName,
+    string? UserEmail,
+    string Action,
+    string EntityType,
+    Guid? EntityId,
+    string? EntityLabel,
+    IReadOnlyList<string>? ChangedFields,
+    string? Ip,
+    DateTime At);
+
+public record AuditLogPageDto(
+    List<AuditLogEntryDto> Items,
+    int Total,
+    int Page,
+    int PageSize);
+
+// ========== Kommo ==========
+
+public record KommoConfigDto(
+    string Subdomain,
+    bool HasToken,
+    string? TokenSuffix,
+    bool HasWebhookSecret,
+    DateTime? LastSyncAt);
+
+public record SaveKommoConfigRequest(
+    string Subdomain,
+    string AccessToken,
+    string? WebhookSecret);
+
+public record KommoSyncRequest(int? Limit, int? Page, string? Query);
+
+public record KommoSyncResponse(int Received, int Stored, DateTime LastSyncAt);
+
+public record KommoInboxItemDto(
+    Guid Id,
+    Guid EmpresaId,
+    long? KommoLeadId,
+    string Source,
+    DateTime ReceivedAt,
+    string Status,
+    Guid? ImportedLeadId,
+    string? Note,
+    string Raw);
+
+public record PromoteKommoLeadRequest(CreateLeadRequest Lead);
