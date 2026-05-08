@@ -77,7 +77,10 @@ public record LeadSummaryDto(
     bool TemConsulta,
     bool? Compareceu,
     bool? FechouTratamento,
-    string? MotivoNaoFechamento);
+    string? MotivoNaoFechamento,
+    Guid? ConsultaId,
+    bool TemTratamento,
+    decimal? ConsultaOrcamento);
 
 public record LeadDetailDto(
     Guid Id,

@@ -62,7 +62,10 @@ public static class LeadsQueries
                 l.Consulta != null,
                 l.Consulta != null ? l.Consulta.Compareceu : null,
                 l.Consulta != null ? l.Consulta.FechouTratamento : null,
-                l.Consulta != null ? l.Consulta.MotivoNaoFechamento : null))
+                l.Consulta != null ? l.Consulta.MotivoNaoFechamento : null,
+                l.Consulta != null ? (Guid?)l.Consulta.Id : null,
+                l.Consulta != null && l.Consulta.Tratamento != null,
+                l.Consulta != null ? (decimal?)l.Consulta.Orcamento : null))
             .ToListAsync(ct);
 
         return new PaginatedLeadsResponse(items, total, page, pageSize);
