@@ -117,6 +117,39 @@ public class AdminController(AppDbContext db, IRequestLogStore logStore) : Contr
         return Ok(members.Cast<object>().ToList());
     }
 
+    /// <summary>
+    /// Substitui TODOS os motivos com IsDefault=true da empresa pelo seed canônico atual
+    /// (<see cref="MotivoNaoFechamento.Defaults"/>). Motivos custom (IsDefault=false)
+    /// são preservados. Use isso pra realinhar empresas semeadas com versões antigas.
+    /// </summary>
+    [HttpPost("empresas/{empresaId:guid}/reseed-motivos")]
+    public async Task<ActionResult<object>> ReseedMotivos(Guid empresaId, CancellationToken ct)
+    {
+        var empresa = await db.Empresas.AnyAsync(e => e.Id == empresaId, ct);
+        if (!empresa) return NotFound(new { message = "Empresa não encontrada." });
+
+        // Apaga só os defaults antigos, preserva customizações.
+        var removidos = await db.MotivosNaoFechamento
+            .Where(m => m.EmpresaId == empresaId && m.IsDefault)
+            .ExecuteDeleteAsync(ct);
+
+        var now = DateTime.UtcNow;
+        foreach (var (nome, cor) in MotivoNaoFechamento.Defaults)
+        {
+            db.MotivosNaoFechamento.Add(new MotivoNaoFechamento
+            {
+                EmpresaId = empresaId,
+                Nome = nome,
+                Cor = cor,
+                IsDefault = true,
+                CreatedAt = now,
+            });
+        }
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new { removidos, inseridos = MotivoNaoFechamento.Defaults.Length });
+    }
+
     [HttpGet("diagnostic/users/by-email")]
     public async Task<ActionResult<object>> UserByEmail([FromQuery] string email, CancellationToken ct)
     {

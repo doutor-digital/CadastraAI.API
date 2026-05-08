@@ -29,8 +29,7 @@ public class MotivoNaoFechamento
 
     public static readonly (string Nome, string Cor)[] Defaults =
     [
-        ("Fechou tratamento total", "verde"),
-        ("Fechou tratamento parcial", "verde"),
+        ("Fechou tratamento (parcial/total)", "verde"),
         ("Assinou contrato, sem entrada", "amarelo"),
         ("Vai decidir com familiares", "amarelo"),
         ("Vai verificar a melhor forma de pagamento", "amarelo"),
