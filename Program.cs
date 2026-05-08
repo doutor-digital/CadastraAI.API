@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using CadastraAI.API.Admin;
 using CadastraAI.API.Auth;
 using CadastraAI.API.Cache;
 using CadastraAI.API.Data;
@@ -47,6 +48,10 @@ builder.Services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
 
 // ----- Storage -----
 builder.Services.AddSingleton<ILocalFileStorage, LocalFileStorage>();
+
+// ----- Admin (request log + Basic Auth gate) -----
+builder.Services.Configure<AdminOptions>(builder.Configuration.GetSection("Admin"));
+builder.Services.AddSingleton<IRequestLogStore, InMemoryRequestLogStore>();
 
 // ----- Email -----
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
@@ -152,8 +157,17 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.UseCors(FrontendCorsPolicy);
 
+// Captura toda requisição (precisa rodar antes do auth pra cronometrar
+// o request inteiro, mas lê User.Identity no finally — quando o JWT
+// middleware já populou o ClaimsPrincipal).
+app.UseMiddleware<RequestLoggingMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Gate de Basic Auth somente para /api/admin/*. Roda após auth pra que
+// rotas normais não sejam afetadas.
+app.UseMiddleware<AdminAuthMiddleware>();
 
 app.MapControllers();
 
