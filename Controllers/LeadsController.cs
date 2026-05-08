@@ -286,6 +286,36 @@ public class LeadsController(AppDbContext db, IDashboardCache cache) : Controlle
         return NoContent();
     }
 
+    /// <summary>
+    /// Apaga em massa os leads da empresa, com filtro opcional por fonte (manual|importado).
+    /// Usa ExecuteDeleteAsync — uma única instrução SQL, não carrega entidades em memória.
+    /// Operação irreversível: o cliente DEVE enviar `confirm=APAGAR` como query string.
+    /// </summary>
+    [HttpDelete("api/empresas/{empresaId:guid}/leads")]
+    public async Task<IActionResult> BulkDelete(
+        Guid empresaId,
+        [FromQuery] string? confirm,
+        [FromQuery] string? fonte,
+        CancellationToken ct)
+    {
+        var userId = User.UserId();
+        if (userId is null) return Unauthorized();
+        if (await MembershipGuard.Find(db, empresaId, userId.Value, ct) is null) return Forbid();
+
+        if (!string.Equals(confirm, "APAGAR", StringComparison.Ordinal))
+        {
+            return BadRequest(new { message = "Confirmação obrigatória. Envie ?confirm=APAGAR." });
+        }
+
+        var q = db.Leads.Where(l => l.EmpresaId == empresaId);
+        if (fonte == "manual") q = q.Where(l => !l.Importado);
+        else if (fonte == "importado") q = q.Where(l => l.Importado);
+
+        var deleted = await q.ExecuteDeleteAsync(ct);
+        await cache.InvalidateEmpresaAsync(empresaId, ct);
+        return Ok(new { deleted });
+    }
+
     internal static LeadDetailDto MapDetail(Lead l) => new(
         l.Id,
         l.EmpresaId,

@@ -89,27 +89,35 @@ public static class LeadsQueries
         var origensQ = db.Leads.AsNoTracking()
             .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
         origensQ = ApplyFonte(origensQ, fonte);
-        var origens = await origensQ
+        // Projetamos para tipo anônimo (EF Core/Npgsql não traduzem record posicional
+        // dentro do Select após GroupBy + Where dinâmico) e materializamos o record após o ToList.
+        var origensRaw = await origensQ
             .GroupBy(l => l.Origem)
-            .Select(g => new OrigemBucket(g.Key, g.Count()))
+            .Select(g => new { Nome = g.Key, Count = g.Count() })
             .OrderByDescending(x => x.Count)
             .Take(10)
             .ToListAsync(ct);
+        var origens = origensRaw.Select(x => new OrigemBucket(x.Nome, x.Count)).ToList();
 
         var respQ = db.Leads.AsNoTracking()
             .Where(l => l.EmpresaId == empresaId && l.CreatedAt >= fromUtc && l.CreatedAt < toUtc);
         respQ = ApplyFonte(respQ, fonte);
-        var responsaveis = await respQ
+        var responsaveisRaw = await respQ
             .GroupBy(l => l.NomeResponsavel)
-            .Select(g => new ResponsavelBucket(
-                g.Key,
-                g.Count(),
-                g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
-                g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento)))
+            .Select(g => new
+            {
+                Nome = g.Key,
+                Leads = g.Count(),
+                Compareceram = g.Count(l => l.Consulta != null && l.Consulta.Compareceu),
+                Fecharam = g.Count(l => l.Consulta != null && l.Consulta.FechouTratamento),
+            })
             .OrderByDescending(x => x.Fecharam)
             .ThenByDescending(x => x.Leads)
             .Take(10)
             .ToListAsync(ct);
+        var responsaveis = responsaveisRaw
+            .Select(x => new ResponsavelBucket(x.Nome, x.Leads, x.Compareceram, x.Fecharam))
+            .ToList();
 
         return new LeadsStatsResponse(current, previous, origens, responsaveis);
     }
